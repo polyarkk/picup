@@ -1,0 +1,2 @@
+[workspace]
+members = ["picup-srv", "picup-cli", "picup-lib"]

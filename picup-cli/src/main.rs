@@ -1,48 +1,35 @@
-use std::collections::HashMap;
-
 use clap::{arg, command};
-use reqwest::{blocking::{multipart::Form, Client}, StatusCode};
+use picup_lib::{picup, Result};
 
-fn main() {
-    let matches = command!()
+fn main() -> Result<()> {
+    let mut matches = command!()
         .args(&[
-            arg!(-t --tokenn <token>    "Token for access to uploading images to the picbed.")
+            arg!(-t --token <token>    "Token for access to uploading images to the picbed.")
                 .required(true),
-            arg!(-u --apiurl <api_url>  "\"/upload\" api url prefix for PicUp server. Leave empty if you use it locally."),
+            arg!(-u --apiurl <api_url>  "\"/upload\" api url prefix for PicUp server. Default: http://127.0.0.1:19190"),
             arg!([images]               "File paths for images to be uploaded.")
                 .required(true)
                 .num_args(0..),
         ])
         .get_matches();
 
-    let token = matches.get_one::<String>("token").expect("no token");
+    let token = matches.remove_one::<String>("token").expect("no token");
 
-    let api_url = match matches.get_one::<String>("apiurl") {
-        Some(api_url) => api_url.to_owned(),
-        None => format!("http://127.0.0.1/picup"),
+    let api_url = match matches.remove_one::<String>("apiurl") {
+        Some(api_url) => api_url,
+        None => format!("http://127.0.0.1:19190"),
     };
 
-    let paths = matches.get_many::<String>("images").unwrap();
+    let paths = matches
+        .remove_many::<String>("images")
+        .unwrap()
+        .collect::<Vec<String>>();
 
-    let client = Client::new();
+    let urls = picup(&api_url, &token, &paths)?;
 
-    let form = {
-        let mut form = Form::new();
-
-        for path in paths {
-            form = form.file("file", path).expect("invalid file path");
-        }
-
-        form
-    };
-    
-    let res = client.post(format!("{}/upload", api_url))
-        .query(&[("access_token", token)])
-        .multipart(form)
-        .send()
-        .unwrap();
-
-    if res.status() != StatusCode::OK {
-        
+    for url in urls {
+        println!("{}", url);
     }
+
+    Ok(())
 }

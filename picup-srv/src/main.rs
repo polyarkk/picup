@@ -10,8 +10,8 @@ use axum::{
 };
 
 use clap::{arg, command};
-use serde::Serialize;
 
+use picup_lib::{api, RestResponse};
 use tokio::{
     fs::{create_dir, create_dir_all, remove_dir_all, rename, File},
     io::AsyncWriteExt,
@@ -21,54 +21,11 @@ use tokio::{
 use tokio_util::io::ReaderStream;
 use urlencoding::encode;
 
-macro_rules! str(
-    ($s:expr) => ( String::from( $s ) );
-);
-
-macro_rules! api {
-    ($s:expr) => {
-        format!("/picup{}", $s).as_str()
-    };
-}
-
 struct SrvState {
     access_token: String,
     pic_url_prefix: String,
     pic_directory: String,
     pic_temp_directory: String,
-}
-
-#[derive(Serialize)]
-struct RestResponse<TData> {
-    status: u16,
-    msg: String,
-    data: Option<TData>,
-}
-
-impl<TData> RestResponse<TData> {
-    fn ok(urls: TData) -> Self {
-        RestResponse {
-            status: StatusCode::OK.as_u16(),
-            msg: str!("ok"),
-            data: Some(urls),
-        }
-    }
-
-    fn no(msg: String) -> Self {
-        RestResponse {
-            status: StatusCode::BAD_REQUEST.as_u16(),
-            msg: msg,
-            data: None,
-        }
-    }
-
-    fn res_ok(urls: TData) -> (StatusCode, Json<Self>) {
-        (StatusCode::OK, Json(Self::ok(urls)))
-    }
-
-    fn res_no(msg: &str) -> (StatusCode, Json<Self>) {
-        (StatusCode::BAD_REQUEST, Json(Self::no(str!(msg))))
-    }
 }
 
 ///
