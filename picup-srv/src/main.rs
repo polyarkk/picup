@@ -153,10 +153,10 @@ async fn main() {
         .expect("image directory is not specified")
         .to_owned();
 
-    let pic_url_prefix = match matches.get_one::<String>("url") {
+    let pic_url_prefix = format!("{}{}", match matches.get_one::<String>("url") {
         Some(pic_url_prefix) => pic_url_prefix.to_owned(),
-        None => format!("http://127.0.0.1:{}{}", port, api!("/pic/")),
-    };
+        None => format!("http://127.0.0.1:{}", port),
+    }, api!("/pic/"));
 
     let state = Arc::new(SrvState {
         access_token,
