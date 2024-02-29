@@ -19,6 +19,8 @@ use tokio::{
 };
 
 use tokio_util::io::ReaderStream;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::{info, Level};
 use urlencoding::encode;
 
 struct SrvState {
@@ -148,16 +150,22 @@ async fn main() {
 
     let access_token = matches.get_one::<String>("token").unwrap().to_owned();
 
-    let dir = format!("{}/", matches
-        .get_one::<String>("dir")
-        .expect("image directory is not specified")
-        .to_owned()
+    let dir = format!(
+        "{}/",
+        matches
+            .get_one::<String>("dir")
+            .expect("image directory is not specified")
+            .to_owned()
     );
 
-    let pic_url_prefix = format!("{}{}", match matches.get_one::<String>("url") {
-        Some(pic_url_prefix) => pic_url_prefix.to_owned(),
-        None => format!("http://127.0.0.1:{}", port),
-    }, api!("/pic/"));
+    let pic_url_prefix = format!(
+        "{}{}",
+        match matches.get_one::<String>("url") {
+            Some(pic_url_prefix) => pic_url_prefix.to_owned(),
+            None => format!("http://127.0.0.1:{}", port),
+        },
+        api!("/pic/")
+    );
 
     let state = Arc::new(SrvState {
         access_token,
@@ -169,21 +177,28 @@ async fn main() {
     create_dir_all(&state.pic_directory).await.unwrap();
     create_dir_all(&state.pic_temp_directory).await.unwrap();
 
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .compact()
+        .init();
+
     let app = Router::new()
         .route(api!("/upload"), post(upload_img))
         .route(api!("/pic/:file_name"), get(get_img))
-        .with_state(state);
+        .with_state(state)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO))
+        );
+
+    info!("PicUp is now listening to port {}. Ctrl+C to stop the server.", port);
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .unwrap();
 
-    println!(
-        "PicUp is now listening to port {}.\nCtrl+C to stop the server.",
-        port
-    );
-
-    serve(listener, app).await.unwrap();
+    serve(listener, app.into_make_service()).await.unwrap();
 }
 
 async fn truncate_temp(state: &Arc<SrvState>) {
