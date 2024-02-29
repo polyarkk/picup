@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, process::exit, sync::Arc};
 
 use axum::{
     body::Body,
@@ -16,6 +16,7 @@ use tokio::{
     fs::{create_dir, create_dir_all, remove_dir_all, rename, File},
     io::AsyncWriteExt,
     net::TcpListener,
+    signal::ctrl_c,
 };
 
 use tokio_util::io::ReaderStream;
@@ -189,16 +190,25 @@ async fn main() {
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(DefaultOnResponse::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
         );
 
-    info!("PicUp is now listening to port {}. Ctrl+C to stop the server.", port);
+    info!(
+        "PicUp server is now listening to port {}. Ctrl+C to stop the server.",
+        port
+    );
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .unwrap();
 
-    serve(listener, app.into_make_service()).await.unwrap();
+    serve(listener, app.into_make_service())
+        .with_graceful_shutdown(async {
+            ctrl_c().await.unwrap();
+            info!("PicUp server is not shutting down!");
+        })
+        .await
+        .unwrap();
 }
 
 async fn truncate_temp(state: &Arc<SrvState>) {
