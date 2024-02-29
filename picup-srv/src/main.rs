@@ -148,10 +148,11 @@ async fn main() {
 
     let access_token = matches.get_one::<String>("token").unwrap().to_owned();
 
-    let dir = matches
+    let dir = format!("{}/", matches
         .get_one::<String>("dir")
         .expect("image directory is not specified")
-        .to_owned();
+        .to_owned()
+    );
 
     let pic_url_prefix = format!("{}{}", match matches.get_one::<String>("url") {
         Some(pic_url_prefix) => pic_url_prefix.to_owned(),
@@ -162,7 +163,7 @@ async fn main() {
         access_token,
         pic_url_prefix,
         pic_directory: dir.to_owned(),
-        pic_temp_directory: format!("{}/temp", dir),
+        pic_temp_directory: format!("{}/temp/", dir),
     });
 
     create_dir_all(&state.pic_directory).await.unwrap();
