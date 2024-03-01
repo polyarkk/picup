@@ -198,14 +198,14 @@ async fn get_img(
 async fn main() {
     let matches = command!()
         .args(&[
-            arg!(-n --allow-all-files   "Files those are not images can also be uploaded.")
+            arg!(-n --"allow-all-files"     "Files those are not images can also be uploaded.")
                 .action(ArgAction::SetFalse),
-            arg!(-t --token <token>     "Token for access to uploading images to the picbed.")
+            arg!(-t --token <token>         "Token for access to uploading images to the picbed.")
                 .required(true),
-            arg!(-d --dir <dir>         "Directory where stores images.")
+            arg!(-d --dir <dir>             "Directory where stores images.")
                 .required(true),
-            arg!(-p --port <port>       "Port that the server listens to. If not given, 19190 will be used."),
-            arg!(-u --url <url>         "Url that will be used on responsing to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
+            arg!(-p --port <port>           "Port that the server listens to. If not given, 19190 will be used."),
+            arg!(-u --url <url>             "Url that will be used on responsing to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
         ])
         .get_matches();
 
