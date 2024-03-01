@@ -9,7 +9,7 @@ use axum::{
     serve, Router,
 };
 
-use clap::{arg, command};
+use clap::{arg, command, ArgAction};
 
 use picup_lib::{api, ResponseCode, RestResponse, UploadImgParam};
 use tokio::{
@@ -198,7 +198,8 @@ async fn get_img(
 async fn main() {
     let matches = command!()
         .args(&[
-            arg!(-n --allow-all-files   "Files those are not images can also be uploaded."),
+            arg!(-n --allow-all-files   "Files those are not images can also be uploaded.")
+                .action(ArgAction::SetFalse),
             arg!(-t --token <token>     "Token for access to uploading images to the picbed.")
                 .required(true),
             arg!(-d --dir <dir>         "Directory where stores images.")
