@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
     body::Body,
@@ -11,9 +11,9 @@ use axum::{
 
 use clap::{arg, command};
 
-use picup_lib::{api, RestResponse};
+use picup_lib::{api, ResponseCode, RestResponse, UploadImgParam};
 use tokio::{
-    fs::{create_dir, create_dir_all, remove_dir_all, rename, File},
+    fs::{create_dir, create_dir_all, remove_dir_all, rename, try_exists, File},
     io::AsyncWriteExt,
     net::TcpListener,
     signal::ctrl_c,
@@ -24,7 +24,31 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
 use urlencoding::encode;
 
+trait Response<TData> {
+    fn res_ok(data: TData) -> (StatusCode, Json<Self>)
+    where
+        Self: Sized;
+
+    fn res_no(code: ResponseCode, msg: &str) -> (StatusCode, Json<Self>)
+    where
+        Self: Sized;
+}
+
+impl<TData> Response<TData> for RestResponse<TData> {
+    fn res_ok(data: TData) -> (StatusCode, Json<Self>) {
+        (StatusCode::OK, Json(Self::ok(data)))
+    }
+
+    fn res_no(code: ResponseCode, msg: &str) -> (StatusCode, Json<Self>) {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(Self::no(code, format!("{}", msg))),
+        )
+    }
+}
+
 struct SrvState {
+    allow_non_image_content: bool,
     access_token: String,
     pic_url_prefix: String,
     pic_directory: String,
@@ -46,53 +70,87 @@ struct SrvState {
 ///
 async fn upload_img(
     State(state): State<Arc<SrvState>>,
-    param: Query<HashMap<String, String>>,
+    param: Query<UploadImgParam>,
     mut multipart: Multipart,
 ) -> (StatusCode, Json<RestResponse<Vec<String>>>) {
     truncate_temp(&state).await;
 
-    let given_token = param.get("access_token");
+    let param = param.0;
 
-    if given_token.is_none() || given_token.unwrap() != &state.access_token {
-        return RestResponse::res_no("invalid token");
+    let r#override = param.r#override();
+
+    if param.access_token() != state.access_token {
+        return RestResponse::res_no(ResponseCode::INVALID_TOKEN, "invalid token");
     }
 
-    let mut image_urls = Vec::new();
     let mut file_names = Vec::new();
 
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        if !field.content_type().unwrap().contains("image") {
-            return RestResponse::res_no("not a image for one of images");
-        }
+    let mut handled = 0;
 
+    while let Some(field) = multipart.next_field().await.unwrap() {
         let file_name = field.file_name();
 
         if file_name.is_none() {
-            return RestResponse::res_no("no file name for one of images");
+            return RestResponse::res_no(
+                ResponseCode::BAD_FILE_NAME,
+                &format!("invalid file name, file no: {}", handled + 1),
+            );
         }
 
         let file_name = file_name.unwrap().to_owned();
 
-        image_urls.push(format!("{}{}", state.pic_url_prefix, encode(&file_name)));
+        if !state.allow_non_image_content && !field.content_type().unwrap().contains("image") {
+            return RestResponse::res_no(
+                ResponseCode::NOT_A_IMAGE,
+                &format!("not a image: {}", file_name),
+            );
+        }
+
+        let file_path = format!("{}{}", state.pic_temp_directory, file_name);
+
+        let exists = try_exists(&file_path).await;
+
+        if exists.is_err() {
+            return RestResponse::res_no(
+                ResponseCode::INTERNAL_ERROR,
+                "internal file system error",
+            );
+        }
+
+        let exists = exists.unwrap();
+
+        if !r#override && exists {
+            return RestResponse::res_no(
+                ResponseCode::FILE_EXISTED,
+                &format!("file existed: {}", file_name),
+            );
+        }
 
         let bytes = field.bytes().await;
 
         if bytes.is_err() {
-            return RestResponse::res_no("bad image for one of images");
+            return RestResponse::res_no(
+                ResponseCode::BAD_FILE,
+                &format!("bad file: {}", file_name),
+            );
         }
-
-        let file_path = format!("{}{}", state.pic_temp_directory, file_name);
 
         let mut file = File::create(file_path).await.unwrap();
 
         let written = file.write_all(&bytes.unwrap()).await;
 
         if written.is_err() {
-            return RestResponse::res_no("file write failed");
+            return RestResponse::res_no(
+                ResponseCode::INTERNAL_ERROR,
+                "internal file system error",
+            );
         }
 
         file_names.push(file_name);
+        handled += 1;
     }
+
+    let mut image_urls = Vec::new();
 
     for file_name in file_names {
         rename(
@@ -101,6 +159,8 @@ async fn upload_img(
         )
         .await
         .unwrap();
+
+        image_urls.push(format!("{}{}", state.pic_url_prefix, encode(&file_name)));
     }
 
     return RestResponse::res_ok(image_urls);
@@ -138,6 +198,7 @@ async fn get_img(
 async fn main() {
     let matches = command!()
         .args(&[
+            arg!(-n --allow-all-files   "Files those are not images can also be uploaded."),
             arg!(-t --token <token>     "Token for access to uploading images to the picbed.")
                 .required(true),
             arg!(-d --dir <dir>         "Directory where stores images.")
@@ -146,6 +207,8 @@ async fn main() {
             arg!(-u --url <url>         "Url that will be used on responsing to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
         ])
         .get_matches();
+
+    let allow_non_image_content = matches.get_flag("allow-all-files");
 
     let port = matches.get_one::<u16>("port").unwrap_or(&19190);
 
@@ -169,6 +232,7 @@ async fn main() {
     );
 
     let state = Arc::new(SrvState {
+        allow_non_image_content,
         access_token,
         pic_url_prefix,
         pic_directory: dir.to_owned(),

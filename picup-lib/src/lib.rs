@@ -1,4 +1,4 @@
-use axum::{http::StatusCode, Json};
+use axum::http::StatusCode;
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
 
@@ -6,15 +6,68 @@ pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[macro_export]
-macro_rules! str(
-    ($s:expr) => ( String::from( $s ) );
-);
-
-#[macro_export]
 macro_rules! api {
     ($s:expr) => {
         format!("/picup{}", $s).as_str()
     };
+}
+
+#[derive(PartialEq)]
+pub struct ResponseCode(u16);
+
+macro_rules! response_codes {
+    (
+        $(
+            ($num:expr, $konst:ident);
+        )+
+    ) => {
+        impl ResponseCode {
+        $(
+            pub const $konst: ResponseCode = ResponseCode($num);
+        )+
+
+        }
+    }
+}
+
+response_codes! {
+    (0, OK);
+    (999, INTERNAL_ERROR);
+    (1001, INVALID_TOKEN);
+    (1002, BAD_FILE_NAME);
+    (1003, NOT_A_IMAGE);
+    (1004, FILE_EXISTED);
+    (1005, BAD_FILE);
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct UploadImgParam {
+    r#override: Option<bool>,
+    access_token: String,
+}
+
+impl UploadImgParam {
+    pub fn new(access_token: &str) -> Self {
+        UploadImgParam {
+            access_token: access_token.to_string(),
+            r#override: None,
+        }
+    }
+
+    pub fn new_override(access_token: &str) -> Self {
+        UploadImgParam {
+            access_token: access_token.to_string(),
+            r#override: Some(true),
+        }
+    }
+
+    pub fn r#override(&self) -> bool {
+        self.r#override.is_some() && self.r#override.unwrap()
+    }
+
+    pub fn access_token(&self) -> &str {
+        &self.access_token
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -25,40 +78,32 @@ pub struct RestResponse<TData> {
 }
 
 impl<TData> RestResponse<TData> {
-    fn ok(urls: TData) -> Self {
+    pub fn ok(data: TData) -> Self {
         RestResponse {
             status: StatusCode::OK.as_u16(),
-            msg: str!("ok"),
-            data: Some(urls),
+            msg: format!("ok"),
+            data: Some(data),
         }
     }
 
-    fn no(msg: String) -> Self {
+    pub fn no(code: ResponseCode, msg: String) -> Self {
         RestResponse {
-            status: StatusCode::BAD_REQUEST.as_u16(),
-            msg: msg,
+            status: code.0,
+            msg,
             data: None,
         }
     }
 
-    pub fn res_ok(urls: TData) -> (StatusCode, Json<Self>) {
-        (StatusCode::OK, Json(Self::ok(urls)))
-    }
-
-    pub fn res_no(msg: &str) -> (StatusCode, Json<Self>) {
-        (StatusCode::BAD_REQUEST, Json(Self::no(str!(msg))))
-    }
-
-    pub fn status(&self) -> u16 {
-        self.status
+    pub fn status(&self) -> ResponseCode {
+        ResponseCode(self.status)
     }
 
     pub fn msg(&self) -> &String {
         &self.msg
     }
 
-    pub fn data(self) -> Option<TData> {
-        self.data
+    pub fn data(&self) -> Option<&TData> {
+        self.data.as_ref()
     }
 }
 
@@ -97,14 +142,12 @@ where
         .post(format!("{}{}", base_url, api!("/upload")))
         .query(&[("access_token", token)])
         .multipart(form)
-        .send()
-        .unwrap()
-        .json::<RestResponse<Vec<String>>>()
-        .expect("request error");
+        .send()?
+        .json::<RestResponse<Vec<String>>>()?;
 
-    if res.status() != StatusCode::OK {
+    if res.status() != ResponseCode::OK {
         return Err(Error::from(res.msg().as_str()));
     }
 
-    return Ok(res.data().take().unwrap());
+    return Ok(res.data().unwrap().to_vec());
 }

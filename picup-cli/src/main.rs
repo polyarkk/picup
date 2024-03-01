@@ -6,7 +6,7 @@ fn main() -> Result<()> {
         .args(&[
             arg!(-t --token <token>    "Token for access to uploading images to the picbed.")
                 .required(true),
-            arg!(-u --apiurl <api_url>  "\"/upload\" api url prefix for PicUp server. Default: http://127.0.0.1:19190"),
+            arg!(-u --api-url <url>  "\"/upload\" api url prefix for PicUp server. Default: http://127.0.0.1:19190"),
             arg!([images]               "File paths for images to be uploaded.")
                 .required(true)
                 .num_args(0..),
@@ -15,7 +15,7 @@ fn main() -> Result<()> {
 
     let token = matches.remove_one::<String>("token").expect("no token");
 
-    let api_url = match matches.remove_one::<String>("apiurl") {
+    let api_url = match matches.remove_one::<String>("api-url") {
         Some(api_url) => api_url,
         None => format!("http://127.0.0.1:19190"),
     };
