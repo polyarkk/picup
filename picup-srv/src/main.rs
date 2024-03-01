@@ -106,7 +106,7 @@ async fn upload_img(
             );
         }
 
-        let file_path = format!("{}{}", state.pic_temp_directory, file_name);
+        let file_path = format!("{}{}", state.pic_directory, file_name);
 
         let exists = try_exists(&file_path).await;
 
@@ -134,6 +134,8 @@ async fn upload_img(
                 &format!("bad file: {}", file_name),
             );
         }
+
+        let file_path = format!("{}{}", state.pic_temp_directory, file_name);
 
         let mut file = File::create(file_path).await.unwrap();
 
