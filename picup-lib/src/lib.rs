@@ -40,9 +40,15 @@ response_codes! {
     (1005, BAD_FILE);
 }
 
+fn serde_default_false() -> bool {
+    false
+}
+
+// serde bug: https://github.com/serde-rs/serde/issues/1030
 #[derive(Serialize, Deserialize)]
 pub struct UploadImgParam {
-    r#override: Option<bool>,
+    #[serde(default = "serde_default_false")]
+    r#override: bool,
     access_token: String,
 }
 
@@ -50,19 +56,19 @@ impl UploadImgParam {
     pub fn new(access_token: &str) -> Self {
         UploadImgParam {
             access_token: access_token.to_string(),
-            r#override: None,
+            r#override: false,
         }
     }
 
     pub fn new_override(access_token: &str) -> Self {
         UploadImgParam {
             access_token: access_token.to_string(),
-            r#override: Some(true),
+            r#override: true,
         }
     }
 
     pub fn r#override(&self) -> bool {
-        self.r#override.is_some() && self.r#override.unwrap()
+        self.r#override
     }
 
     pub fn access_token(&self) -> &str {
