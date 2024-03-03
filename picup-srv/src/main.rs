@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     body::Body,
@@ -20,35 +21,52 @@ use tokio::{
 };
 
 use tokio_util::io::ReaderStream;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
 use urlencoding::encode;
 
-trait Response<TData> {
-    fn res_ok(data: TData) -> (StatusCode, Json<Self>)
-    where
-        Self: Sized;
+type JRestResponse<TData> = (StatusCode, Json<RestResponse<TData>>);
 
-    fn res_no(code: ResponseCode, msg: &str) -> (StatusCode, Json<Self>)
+trait JsonResponse {
+    fn response(status: StatusCode, s: Self) -> (StatusCode, Json<Self>)
     where
         Self: Sized;
 }
 
-impl<TData> Response<TData> for RestResponse<TData> {
-    fn res_ok(data: TData) -> (StatusCode, Json<Self>) {
-        (StatusCode::OK, Json(Self::ok(data)))
+impl<TData> JsonResponse for RestResponse<TData> {
+    fn response(status: StatusCode, s: Self) -> JRestResponse<TData>
+    where
+        Self: Sized,
+    {
+        (status, Json(s))
     }
+}
 
-    fn res_no(code: ResponseCode, msg: &str) -> (StatusCode, Json<Self>) {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(Self::no(code, format!("{}", msg))),
-        )
-    }
+fn _response_ok_no_data() -> JRestResponse<()> {
+    RestResponse::response(
+        StatusCode::OK,
+        RestResponse::new_no_data(ResponseCode::OK, "ok"),
+    )
+}
+
+fn response_ok<TData>(data: TData) -> JRestResponse<TData> {
+    RestResponse::response(
+        StatusCode::OK,
+        RestResponse::new(ResponseCode::OK, "ok", data),
+    )
+}
+
+fn response_no<TData>(code: ResponseCode, msg: &str) -> JRestResponse<TData> {
+    RestResponse::response(
+        StatusCode::BAD_REQUEST,
+        RestResponse::new_no_data(code, msg),
+    )
 }
 
 struct SrvState {
     allow_non_image_content: bool,
+    categories: Vec<String>,
     access_token: String,
     pic_url_prefix: String,
     pic_directory: String,
@@ -56,15 +74,15 @@ struct SrvState {
 }
 
 ///
-/// Uploads one or more images to the picbed.
+/// Uploads one or more images to the server.
 ///
 /// Request Form Data:
 /// - imgs: Images
 ///
 /// Response JSON:
-/// - status: 200 if success, 400 if fail.
-/// - msg: "ok" if success, fail reason if fail.
-/// - urls: urls to get the image uploaded to the picbed. nothing if fail.
+/// - status: 200 if success, 400 if failed.
+/// - msg: "ok" if success, fail reason if failed.
+/// - urls: urls to get the image uploaded to the server. nothing if failed.
 ///
 /// Note: If one of images failed to upload, other images will not be uploaded, too.
 ///
@@ -72,18 +90,26 @@ async fn upload_img(
     State(state): State<Arc<SrvState>>,
     param: Query<UploadImgParam>,
     mut multipart: Multipart,
-) -> (StatusCode, Json<RestResponse<Vec<String>>>) {
+) -> JRestResponse<Vec<String>> {
     truncate_temp(&state).await;
 
     let param = param.0;
 
     let r#override = param.r#override();
 
-    if param.access_token() != state.access_token {
-        return RestResponse::res_no(ResponseCode::INVALID_TOKEN, "invalid token");
+    if param.access_token() != &state.access_token {
+        return response_no(ResponseCode::INVALID_TOKEN, "invalid token");
     }
 
     let mut file_names = Vec::new();
+
+    let category = param.category();
+
+    if !state.categories.contains(&category) {
+        return response_no(ResponseCode::INVALID_CATEGORY, "invalid category");
+    }
+
+    let category = format!("{}/", param.category());
 
     let mut handled = 0;
 
@@ -91,7 +117,7 @@ async fn upload_img(
         let file_name = field.file_name();
 
         if file_name.is_none() {
-            return RestResponse::res_no(
+            return response_no(
                 ResponseCode::BAD_FILE_NAME,
                 &format!("invalid file name, file no: {}", handled + 1),
             );
@@ -100,27 +126,24 @@ async fn upload_img(
         let file_name = file_name.unwrap().to_owned();
 
         if !state.allow_non_image_content && !field.content_type().unwrap().contains("image") {
-            return RestResponse::res_no(
+            return response_no(
                 ResponseCode::NOT_A_IMAGE,
                 &format!("not a image: {}", file_name),
             );
         }
 
-        let file_path = format!("{}{}", state.pic_directory, file_name);
+        let file_path = format!("{}{}{}", state.pic_directory, category, file_name);
 
         let exists = try_exists(&file_path).await;
 
         if exists.is_err() {
-            return RestResponse::res_no(
-                ResponseCode::INTERNAL_ERROR,
-                "internal file system error",
-            );
+            return response_no(ResponseCode::INTERNAL_ERROR, "internal file system error");
         }
 
         let exists = exists.unwrap();
 
         if !r#override && exists {
-            return RestResponse::res_no(
+            return response_no(
                 ResponseCode::FILE_EXISTED,
                 &format!("file existed: {}", file_name),
             );
@@ -129,23 +152,17 @@ async fn upload_img(
         let bytes = field.bytes().await;
 
         if bytes.is_err() {
-            return RestResponse::res_no(
-                ResponseCode::BAD_FILE,
-                &format!("bad file: {}", file_name),
-            );
+            return response_no(ResponseCode::BAD_FILE, &format!("bad file: {}", file_name));
         }
 
-        let file_path = format!("{}{}", state.pic_temp_directory, file_name);
+        let file_temp_path = format!("{}{}", state.pic_temp_directory, file_name);
 
-        let mut file = File::create(file_path).await.unwrap();
+        let mut file = File::create(file_temp_path).await.unwrap();
 
         let written = file.write_all(&bytes.unwrap()).await;
 
         if written.is_err() {
-            return RestResponse::res_no(
-                ResponseCode::INTERNAL_ERROR,
-                "internal file system error",
-            );
+            return response_no(ResponseCode::INTERNAL_ERROR, "internal file system error");
         }
 
         file_names.push(file_name);
@@ -154,10 +171,11 @@ async fn upload_img(
 
     let mut image_urls = Vec::new();
 
+    // promising all files should be successfully uploaded
     for file_name in file_names {
         rename(
             format!("{}{}", state.pic_temp_directory, file_name),
-            format!("{}{}", state.pic_directory, file_name),
+            format!("{}{}{}", state.pic_directory, category, file_name),
         )
         .await
         .unwrap();
@@ -165,11 +183,11 @@ async fn upload_img(
         image_urls.push(format!("{}{}", state.pic_url_prefix, encode(&file_name)));
     }
 
-    return RestResponse::res_ok(image_urls);
+    return response_ok(image_urls);
 }
 
 ///
-/// Gets a image to the picbed.
+/// Gets an image from the server.
 ///
 /// Request Path Variable:
 /// - file_name: File name of the image.
@@ -183,9 +201,9 @@ async fn upload_img(
 ///
 async fn get_img(
     State(state): State<Arc<SrvState>>,
-    Path(file_name): Path<String>,
+    Path((category, file_name)): Path<(String, String)>,
 ) -> (StatusCode, Body) {
-    let file = File::open(format!("{}{}", state.pic_directory, file_name)).await;
+    let file = File::open(format!("{}{}{}", state.pic_directory, category, file_name)).await;
 
     if file.is_err() {
         return (StatusCode::NOT_FOUND, Body::empty());
@@ -200,16 +218,27 @@ async fn get_img(
 async fn main() {
     let matches = command!()
         .args(&[
+            arg!(-o --timeout <sec>         "Seconds before timeout for each requests. Default: 30"),
+            arg!(-c --category [name]       "Names for categories.")
+                .action(ArgAction::Append),
             arg!(-n --"allow-all-files"     "Files those are not images can also be uploaded.")
                 .action(ArgAction::SetFalse),
-            arg!(-t --token <token>         "Token for access to uploading images to the picbed.")
+            arg!(-t --token <token>         "Token for access to uploading images to the server.")
                 .required(true),
             arg!(-d --dir <dir>             "Directory where stores images.")
                 .required(true),
             arg!(-p --port <port>           "Port that the server listens to. If not given, 19190 will be used."),
-            arg!(-u --url <url>             "Url that will be used on responsing to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
+            arg!(-u --url <url>             "Url that will be used on responding to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
         ])
         .get_matches();
+
+    let mut categories = matches
+        .get_many::<String>("category")
+        .unwrap()
+        .map(|str_ref| str_ref.to_owned())
+        .collect::<Vec<String>>();
+
+    categories.push("".to_string());
 
     let allow_non_image_content = matches.get_flag("allow-all-files");
 
@@ -236,6 +265,7 @@ async fn main() {
 
     let state = Arc::new(SrvState {
         allow_non_image_content,
+        categories,
         access_token,
         pic_url_prefix,
         pic_directory: dir.to_owned(),
@@ -244,6 +274,10 @@ async fn main() {
 
     create_dir_all(&state.pic_directory).await.unwrap();
     create_dir_all(&state.pic_temp_directory).await.unwrap();
+
+    for category in &state.categories {
+        create_dir_all(category).await.unwrap();
+    }
 
     tracing_subscriber::fmt()
         .with_target(false)
@@ -258,7 +292,10 @@ async fn main() {
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
-        );
+        )
+        .layer(TimeoutLayer::new(Duration::from_secs(
+            *matches.get_one::<u64>("timeout").unwrap_or(&30),
+        )));
 
     info!(
         "PicUp server is now listening to port {}. Ctrl+C to stop the server.",

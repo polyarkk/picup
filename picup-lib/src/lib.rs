@@ -1,4 +1,3 @@
-use axum::http::StatusCode;
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +14,12 @@ macro_rules! api {
 #[derive(PartialEq)]
 pub struct ResponseCode(u16);
 
+impl ResponseCode {
+    pub fn to_u16(&self) -> u16 {
+        self.0
+    }
+}
+
 macro_rules! response_codes {
     (
         $(
@@ -25,7 +30,6 @@ macro_rules! response_codes {
         $(
             pub const $konst: ResponseCode = ResponseCode($num);
         )+
-
         }
     }
 }
@@ -38,10 +42,15 @@ response_codes! {
     (1003, NOT_A_IMAGE);
     (1004, FILE_EXISTED);
     (1005, BAD_FILE);
+    (1006, INVALID_CATEGORY);
 }
 
 fn serde_default_false() -> bool {
     false
+}
+
+fn serde_default_empty_string() -> String {
+    "".to_string()
 }
 
 // serde bug: https://github.com/serde-rs/serde/issues/1030
@@ -49,21 +58,19 @@ fn serde_default_false() -> bool {
 pub struct UploadImgParam {
     #[serde(default = "serde_default_false")]
     r#override: bool,
+
+    #[serde(default = "serde_default_empty_string")]
+    category: String,
+
     access_token: String,
 }
 
 impl UploadImgParam {
-    pub fn new(access_token: &str) -> Self {
+    pub fn new(access_token: &str, category: &str, r#override: bool) -> Self {
         UploadImgParam {
             access_token: access_token.to_string(),
-            r#override: false,
-        }
-    }
-
-    pub fn new_override(access_token: &str) -> Self {
-        UploadImgParam {
-            access_token: access_token.to_string(),
-            r#override: true,
+            category: category.to_string(),
+            r#override,
         }
     }
 
@@ -71,37 +78,41 @@ impl UploadImgParam {
         self.r#override
     }
 
-    pub fn access_token(&self) -> &str {
+    pub fn category(&self) -> &String {
+        &self.category
+    }
+
+    pub fn access_token(&self) -> &String {
         &self.access_token
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct RestResponse<TData> {
-    status: u16,
+    code: u16,
     msg: String,
     data: Option<TData>,
 }
 
 impl<TData> RestResponse<TData> {
-    pub fn ok(data: TData) -> Self {
-        RestResponse {
-            status: StatusCode::OK.as_u16(),
-            msg: format!("ok"),
+    pub fn new(status: ResponseCode, msg: &str, data: TData) -> Self {
+        Self {
+            code: status.to_u16(),
+            msg: msg.to_string(),
             data: Some(data),
         }
     }
 
-    pub fn no(code: ResponseCode, msg: String) -> Self {
-        RestResponse {
-            status: code.0,
-            msg,
+    pub fn new_no_data(status: ResponseCode, msg: &str) -> Self {
+        Self {
+            code: status.to_u16(),
+            msg: msg.to_string(),
             data: None,
         }
     }
 
-    pub fn status(&self) -> ResponseCode {
-        ResponseCode(self.status)
+    pub fn code(&self) -> ResponseCode {
+        ResponseCode(self.code)
     }
 
     pub fn msg(&self) -> &String {
@@ -125,6 +136,8 @@ impl<TData> RestResponse<TData> {
    If OK, the function will return a vector of urls for images uploaded, or error messages otherwise.
 
    ```rust
+    use picup_lib::picup;
+
     let url = "http://127.0.0.1:19190";
     let token = "baka";
     let file_paths = vec!["/path/to/img1", "/path/to/img2"];
@@ -151,7 +164,7 @@ where
         .send()?
         .json::<RestResponse<Vec<String>>>()?;
 
-    if res.status() != ResponseCode::OK {
+    if res.code() != ResponseCode::OK {
         return Err(Error::from(res.msg().as_str()));
     }
 
