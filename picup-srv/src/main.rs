@@ -26,6 +26,19 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
 use urlencoding::encode;
 
+macro_rules! uri_concat {
+    ( $base: expr, $( $s: expr ),* ) => {
+        {
+            let mut uri = $base.to_string();
+            $(
+                uri.push('/');
+                uri.push_str($s);
+            )*
+            uri
+        }
+    };
+}
+
 type JRestResponse<TData> = (StatusCode, Json<RestResponse<TData>>);
 
 trait JsonResponse {
@@ -64,28 +77,15 @@ fn response_no<TData>(code: ResponseCode, msg: &str) -> JRestResponse<TData> {
     )
 }
 
+#[derive(Debug)]
 struct SrvState {
     allow_non_image_content: bool,
     categories: Vec<String>,
     access_token: String,
     pic_url_prefix: String,
     pic_directory: String,
-    pic_temp_directory: String,
 }
 
-///
-/// Uploads one or more images to the server.
-///
-/// Request Form Data:
-/// - imgs: Images
-///
-/// Response JSON:
-/// - status: 200 if success, 400 if failed.
-/// - msg: "ok" if success, fail reason if failed.
-/// - urls: urls to get the image uploaded to the server. nothing if failed.
-///
-/// Note: If one of images failed to upload, other images will not be uploaded, too.
-///
 async fn upload_img(
     State(state): State<Arc<SrvState>>,
     param: Query<UploadImgParam>,
@@ -109,8 +109,6 @@ async fn upload_img(
         return response_no(ResponseCode::INVALID_CATEGORY, "invalid category");
     }
 
-    let category = format!("{}/", param.category());
-
     let mut handled = 0;
 
     while let Some(field) = multipart.next_field().await.unwrap() {
@@ -132,7 +130,7 @@ async fn upload_img(
             );
         }
 
-        let file_path = format!("{}{}{}", state.pic_directory, category, file_name);
+        let file_path = uri_concat!(&state.pic_directory, category, &file_name);
 
         let exists = try_exists(&file_path).await;
 
@@ -155,7 +153,7 @@ async fn upload_img(
             return response_no(ResponseCode::BAD_FILE, &format!("bad file: {}", file_name));
         }
 
-        let file_temp_path = format!("{}{}", state.pic_temp_directory, file_name);
+        let file_temp_path = uri_concat!(&state.pic_directory, "temp", &file_name);
 
         let mut file = File::create(file_temp_path).await.unwrap();
 
@@ -174,36 +172,31 @@ async fn upload_img(
     // promising all files should be successfully uploaded
     for file_name in file_names {
         rename(
-            format!("{}{}", state.pic_temp_directory, file_name),
-            format!("{}{}{}", state.pic_directory, category, file_name),
+            uri_concat!(&state.pic_directory, "temp", &file_name),
+            uri_concat!(&state.pic_directory, category, &file_name),
         )
         .await
         .unwrap();
 
-        image_urls.push(format!("{}{}", state.pic_url_prefix, encode(&file_name)));
+        image_urls.push(uri_concat!(
+            &state.pic_url_prefix,
+            category,
+            &encode(&file_name)
+        ));
     }
 
     return response_ok(image_urls);
 }
 
-///
-/// Gets an image from the server.
-///
-/// Request Path Variable:
-/// - file_name: File name of the image.
-///
-/// Response Body:
-/// - an image, or nothing if no image was found.
-///
-/// Response Status Codes:
-/// - 200: found
-/// - 404: not found
-///
 async fn get_img(
     State(state): State<Arc<SrvState>>,
     Path((category, file_name)): Path<(String, String)>,
 ) -> (StatusCode, Body) {
-    let file = File::open(format!("{}{}{}", state.pic_directory, category, file_name)).await;
+    if !state.categories.contains(&category) {
+        return (StatusCode::NOT_FOUND, Body::empty());
+    }
+
+    let file = File::open(uri_concat!(&state.pic_directory, &category, &file_name)).await;
 
     if file.is_err() {
         return (StatusCode::NOT_FOUND, Body::empty());
@@ -220,9 +213,10 @@ async fn main() {
         .args(&[
             arg!(-o --timeout <sec>         "Seconds before timeout for each requests. Default: 30"),
             arg!(-c --category [name]       "Names for categories.")
-                .action(ArgAction::Append),
+                .action(ArgAction::Append)
+                .required(true),
             arg!(-n --"allow-all-files"     "Files those are not images can also be uploaded.")
-                .action(ArgAction::SetFalse),
+                .action(ArgAction::SetTrue),
             arg!(-t --token <token>         "Token for access to uploading images to the server.")
                 .required(true),
             arg!(-d --dir <dir>             "Directory where stores images.")
@@ -232,13 +226,11 @@ async fn main() {
         ])
         .get_matches();
 
-    let mut categories = matches
+    let categories = matches
         .get_many::<String>("category")
-        .unwrap()
+        .unwrap_or_default()
         .map(|str_ref| str_ref.to_owned())
         .collect::<Vec<String>>();
-
-    categories.push("".to_string());
 
     let allow_non_image_content = matches.get_flag("allow-all-files");
 
@@ -247,7 +239,7 @@ async fn main() {
     let access_token = matches.get_one::<String>("token").unwrap().to_owned();
 
     let dir = format!(
-        "{}/",
+        "{}",
         matches
             .get_one::<String>("dir")
             .expect("image directory is not specified")
@@ -260,7 +252,7 @@ async fn main() {
             Some(pic_url_prefix) => pic_url_prefix.to_owned(),
             None => format!("http://127.0.0.1:{}", port),
         },
-        api!("/pic/")
+        api!("")
     );
 
     let state = Arc::new(SrvState {
@@ -269,14 +261,15 @@ async fn main() {
         access_token,
         pic_url_prefix,
         pic_directory: dir.to_owned(),
-        pic_temp_directory: format!("{}/temp/", dir),
     });
 
     create_dir_all(&state.pic_directory).await.unwrap();
-    create_dir_all(&state.pic_temp_directory).await.unwrap();
+    create_dir_all(uri_concat!(&state.pic_directory, "temp")).await.unwrap();
 
     for category in &state.categories {
-        create_dir_all(category).await.unwrap();
+        create_dir_all(uri_concat!(&state.pic_directory, category))
+            .await
+            .unwrap();
     }
 
     tracing_subscriber::fmt()
@@ -286,7 +279,7 @@ async fn main() {
 
     let app = Router::new()
         .route(api!("/upload"), post(upload_img))
-        .route(api!("/pic/:file_name"), get(get_img))
+        .route(api!("/:category/:file_name"), get(get_img))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
@@ -316,7 +309,7 @@ async fn main() {
 }
 
 async fn truncate_temp(state: &Arc<SrvState>) {
-    let temp_dir = &state.pic_temp_directory;
-    remove_dir_all(temp_dir).await.unwrap();
-    create_dir(temp_dir).await.unwrap();
+    let temp_dir = uri_concat!(&state.pic_directory, "temp");
+    remove_dir_all(&temp_dir).await.unwrap();
+    create_dir(&temp_dir).await.unwrap();
 }

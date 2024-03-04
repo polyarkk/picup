@@ -6,7 +6,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[macro_export]
 macro_rules! api {
-    ($s:expr) => {
+    ( $s: expr ) => {
         format!("/picup{}", $s).as_str()
     };
 }
@@ -145,7 +145,9 @@ impl<TData> RestResponse<TData> {
     let result = picup(url, token, &file_paths);
    ```
 */
-pub fn picup<TPath>(base_url: &str, token: &str, file_paths: &[TPath]) -> Result<Vec<String>>
+pub fn picup<TPath>(
+    base_url: &str, token: &str, category: &str, file_paths: &[TPath]
+) -> Result<Vec<String>>
 where
     TPath: AsRef<std::path::Path>,
 {
@@ -159,7 +161,7 @@ where
 
     let res = client
         .post(format!("{}{}", base_url, api!("/upload")))
-        .query(&[("access_token", token)])
+        .query(&[("access_token", token), ("category", category)])
         .multipart(form)
         .send()?
         .json::<RestResponse<Vec<String>>>()?;
