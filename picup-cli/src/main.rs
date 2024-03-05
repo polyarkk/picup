@@ -21,7 +21,7 @@ fn main() -> Result<()> {
 
     let api_url = match matches.remove_one::<String>("api-url") {
         Some(api_url) => api_url,
-        None => format!("http://127.0.0.1:19190"),
+        None => "http://127.0.0.1:19190".to_string(),
     };
 
     let paths = matches

@@ -105,7 +105,7 @@ async fn upload_img(
 
     let category = param.category();
 
-    if !state.categories.contains(&category) {
+    if !state.categories.contains(category) {
         return response_no(ResponseCode::INVALID_CATEGORY, "invalid category");
     }
 
@@ -185,7 +185,7 @@ async fn upload_img(
         ));
     }
 
-    return response_ok(image_urls);
+    response_ok(image_urls)
 }
 
 async fn get_img(
@@ -204,7 +204,7 @@ async fn get_img(
 
     let stream = ReaderStream::new(file.unwrap());
 
-    return (StatusCode::OK, Body::from_stream(stream));
+    (StatusCode::OK, Body::from_stream(stream))
 }
 
 #[tokio::main]
@@ -238,13 +238,10 @@ async fn main() {
 
     let access_token = matches.get_one::<String>("token").unwrap().to_owned();
 
-    let dir = format!(
-        "{}",
-        matches
+    let dir = matches
             .get_one::<String>("dir")
             .expect("image directory is not specified")
-            .to_owned()
-    );
+            .to_owned().to_string();
 
     let pic_url_prefix = format!(
         "{}{}",
