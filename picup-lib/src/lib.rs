@@ -146,7 +146,7 @@ impl<TData> RestResponse<TData> {
    ```
 */
 pub fn picup<TPath>(
-    base_url: &str, token: &str, category: &str, file_paths: &[TPath]
+    base_url: &str, token: &str, category: &str, file_paths: &[TPath], r#override: bool
 ) -> Result<Vec<String>>
 where
     TPath: AsRef<std::path::Path>,
@@ -156,12 +156,12 @@ where
     let mut form = Form::new();
 
     for path in file_paths {
-        form = form.file("file", path).expect("invalid file path");
+        form = form.file("file", path)?;
     }
 
     let res = client
         .post(format!("{}{}", base_url, api!("/upload")))
-        .query(&[("access_token", token), ("category", category)])
+        .query(&[("access_token", token), ("category", category), ("override", &r#override.to_string())])
         .multipart(form)
         .send()?
         .json::<RestResponse<Vec<String>>>()?;
@@ -170,5 +170,5 @@ where
         return Err(Error::from(res.msg().as_str()));
     }
 
-    return Ok(res.data().unwrap().to_vec());
+    Ok(res.data().unwrap().to_vec())
 }

@@ -1,9 +1,11 @@
-use clap::{arg, command};
+use clap::{arg, command, ArgAction};
 use picup_lib::{picup, Result};
 
 fn main() -> Result<()> {
     let mut matches = command!()
         .args(&[
+            arg!(-o --"override"            "Override existing images in the server.")
+                .action(ArgAction::SetTrue),
             arg!(-c --category <category>   "Category uploading the images to.")
                 .required(true),
             arg!(-t --token <token>         "Token for access to uploading images to the server.")
@@ -29,7 +31,9 @@ fn main() -> Result<()> {
         .unwrap()
         .collect::<Vec<String>>();
 
-    let urls = picup(&api_url, &token, &category, &paths)?;
+    let r#override = matches.get_flag("override");
+
+    let urls = picup(&api_url, &token, &category, &paths, r#override)?;
 
     for url in urls {
         println!("{}", url);
