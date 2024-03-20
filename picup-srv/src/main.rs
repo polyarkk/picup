@@ -27,7 +27,7 @@ use tracing::{info, Level};
 use urlencoding::encode;
 
 macro_rules! uri_concat {
-    ( $base: expr, $( $s: expr ),* ) => {
+    ($base: expr, $( $s: expr ),*) => {
         {
             let mut uri = $base.to_string();
             $(
@@ -36,6 +36,15 @@ macro_rules! uri_concat {
             )*
             uri
         }
+    };
+}
+
+macro_rules! api_todo {
+    () => {
+        response_no(ResponseCode::NOT_IMPLEMENTED, "not implemented")
+    };
+    ( $s: expr ) => {
+        response_no(ResponseCode::NOT_IMPLEMENTED, &format!("not implemented: {}", $s))
     };
 }
 
@@ -109,6 +118,13 @@ async fn upload_img(
         return response_no(ResponseCode::INVALID_CATEGORY, "invalid category");
     }
 
+    // todo compress image when uploading
+    let compress = param.compress();
+
+    if compress != 0 {
+        return api_todo!("compress");
+    }
+
     let mut handled = 0;
 
     while let Some(field) = multipart.next_field().await.unwrap() {
@@ -180,6 +196,7 @@ async fn upload_img(
 
         image_urls.push(uri_concat!(
             &state.pic_url_prefix,
+            "/asset",
             category,
             &encode(&file_name)
         ));
@@ -191,6 +208,7 @@ async fn upload_img(
 async fn get_img(
     State(state): State<Arc<SrvState>>,
     Path((category, file_name)): Path<(String, String)>,
+    Query(compress): Query<Option<u8>>,
 ) -> (StatusCode, Body) {
     if !state.categories.contains(&category) {
         return (StatusCode::NOT_FOUND, Body::empty());
@@ -202,9 +220,28 @@ async fn get_img(
         return (StatusCode::NOT_FOUND, Body::empty());
     }
 
+
     let stream = ReaderStream::new(file.unwrap());
 
+    if compress.is_some() {
+        let compress = compress.unwrap();
+
+        if compress != 0 {
+            return (StatusCode::NOT_IMPLEMENTED, Body::empty());
+        }
+    }
+
     (StatusCode::OK, Body::from_stream(stream))
+}
+
+async fn get_img_urls(
+    State(_state): State<Arc<SrvState>>,
+    Path(_category): Path<String>,
+    Query(
+        (_page, _limit, _precache)
+    ): Query<(String, String, Option<bool>)>,
+) -> JRestResponse<Vec<String>> {
+    api_todo!()
 }
 
 #[tokio::main]
@@ -276,7 +313,8 @@ async fn main() {
 
     let app = Router::new()
         .route(api!("/upload"), post(upload_img))
-        .route(api!("/:category/:file_name"), get(get_img))
+        .route(api!("/asset/:category/:file_name"), get(get_img))
+        .route(api!("/category/:category"), get(get_img_urls))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()

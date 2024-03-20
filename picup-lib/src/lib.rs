@@ -36,6 +36,7 @@ macro_rules! response_codes {
 
 response_codes! {
     (0, OK);
+    (998, NOT_IMPLEMENTED);
     (999, INTERNAL_ERROR);
     (1001, INVALID_TOKEN);
     (1002, BAD_FILE_NAME);
@@ -136,27 +137,6 @@ impl<TData> RestResponse<TData> {
     }
 }
 
-/**
-   Uploads images to the PicUp server using `/upload` API.
-
-   `base_url`: Base url of the API. On calling, the url will be: `{baseurl}/picup/upload`.
-
-   `token`: Access token for the API.
-
-   `file_paths`: Paths of image files.
-
-   If OK, the function will return a vector of urls for images uploaded, or error messages otherwise.
-
-   ```rust
-    use picup_lib::picup;
-
-    let url = "http://127.0.0.1:19190";
-    let token = "baka";
-    let file_paths = vec!["/path/to/img1", "/path/to/img2"];
-
-    let result = picup(url, token, &file_paths);
-   ```
-*/
 pub fn picup<TPath>(
     base_url: &str, file_paths: &[TPath], param: &UploadImgParam
 ) -> Result<Vec<String>>
