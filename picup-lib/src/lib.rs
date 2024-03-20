@@ -49,6 +49,10 @@ fn serde_default_false() -> bool {
     false
 }
 
+fn serde_default_zero_u8() -> u8 {
+    0
+}
+
 fn serde_default_empty_string() -> String {
     "".to_string()
 }
@@ -59,6 +63,9 @@ pub struct UploadImgParam {
     #[serde(default = "serde_default_false")]
     r#override: bool,
 
+    #[serde(default = "serde_default_zero_u8")]
+    compress: u8,
+
     #[serde(default = "serde_default_empty_string")]
     category: String,
 
@@ -66,9 +73,10 @@ pub struct UploadImgParam {
 }
 
 impl UploadImgParam {
-    pub fn new(access_token: &str, category: &str, r#override: bool) -> Self {
+    pub fn new(access_token: &str, compress: u8, category: &str, r#override: bool) -> Self {
         UploadImgParam {
             access_token: access_token.to_string(),
+            compress,
             category: category.to_string(),
             r#override,
         }
@@ -76,6 +84,10 @@ impl UploadImgParam {
 
     pub fn r#override(&self) -> bool {
         self.r#override
+    }
+
+    pub fn compress(&self) -> u8 {
+        self.compress
     }
 
     pub fn category(&self) -> &String {
@@ -146,7 +158,7 @@ impl<TData> RestResponse<TData> {
    ```
 */
 pub fn picup<TPath>(
-    base_url: &str, token: &str, category: &str, file_paths: &[TPath], r#override: bool
+    base_url: &str, file_paths: &[TPath], param: &UploadImgParam
 ) -> Result<Vec<String>>
 where
     TPath: AsRef<std::path::Path>,
@@ -161,7 +173,12 @@ where
 
     let res = client
         .post(format!("{}{}", base_url, api!("/upload")))
-        .query(&[("access_token", token), ("category", category), ("override", &r#override.to_string())])
+        .query(&[
+            ("access_token", param.access_token()),
+            ("compress", &param.compress().to_string()),
+            ("category", param.category()), 
+            ("override", &param.r#override().to_string())]
+        )
         .multipart(form)
         .send()?
         .json::<RestResponse<Vec<String>>>()?;

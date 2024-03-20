@@ -1,6 +1,5 @@
 [workspace]
-members = ["picup-srv", "picup-cli", "picup-lib", "picup-gui", "picup-gui/src-tauri"]
-# exclude = [ "picup-gui/tauri-src" ]
+members = ["picup-srv", "picup-cli", "picup-lib"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -16,10 +15,3 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1.0.197", features = ["serde_derive", "derive"] }
 reqwest = { version = "0.11.24", features = ["blocking", "multipart", "json"] }
 serde_json = "1.0.114"
-yew = { version = "0.21", features = ["csr"] }
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-web-sys = "0.3"
-js-sys = "0.3"
-serde-wasm-bindgen = "0.6"
-tauri = { version = "1", features = ["shell-open"] }

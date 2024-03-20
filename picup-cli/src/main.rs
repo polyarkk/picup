@@ -1,5 +1,5 @@
 use clap::{arg, command, ArgAction};
-use picup_lib::{picup, Result};
+use picup_lib::{picup, Result, UploadImgParam};
 
 fn main() -> Result<()> {
     let mut matches = command!()
@@ -33,7 +33,9 @@ fn main() -> Result<()> {
 
     let r#override = matches.get_flag("override");
 
-    let urls = picup(&api_url, &token, &category, &paths, r#override)?;
+    let urls = picup(&api_url, &paths, &UploadImgParam::new(
+        &token, 0, &category, r#override
+    ))?;
 
     for url in urls {
         println!("{}", url);
