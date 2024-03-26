@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::env;
 use std::time::Duration;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     body::Body,
@@ -10,9 +11,10 @@ use axum::{
     serve, Router,
 };
 
-use clap::{arg, command, ArgAction};
-
-use picup_lib::{api, ResponseCode, RestResponse, UploadImgParam};
+use picup_lib::{GetImgParam, ResponseCode, RestResponse, UploadImgParam, API_BASE_URL};
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use tokio::io::{self, AsyncReadExt};
 use tokio::{
     fs::{create_dir, create_dir_all, remove_dir_all, rename, try_exists, File},
     io::AsyncWriteExt,
@@ -21,6 +23,7 @@ use tokio::{
 };
 
 use tokio_util::io::ReaderStream;
+use toml::Table;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
@@ -44,7 +47,10 @@ macro_rules! api_todo {
         response_no(ResponseCode::NOT_IMPLEMENTED, "not implemented")
     };
     ( $s: expr ) => {
-        response_no(ResponseCode::NOT_IMPLEMENTED, &format!("not implemented: {}", $s))
+        response_no(
+            ResponseCode::NOT_IMPLEMENTED,
+            &format!("not implemented: {}", $s),
+        )
     };
 }
 
@@ -86,13 +92,15 @@ fn response_no<TData>(code: ResponseCode, msg: &str) -> JRestResponse<TData> {
     )
 }
 
-#[derive(Debug)]
 struct SrvState {
-    allow_non_image_content: bool,
-    categories: Vec<String>,
+    categories: HashMap<String, CategoryConfig>,
     access_token: String,
     pic_url_prefix: String,
     pic_directory: String,
+}
+
+struct CategoryConfig {
+    allow_non_image_content: bool,
 }
 
 async fn upload_img(
@@ -114,9 +122,13 @@ async fn upload_img(
 
     let category = param.category();
 
-    if !state.categories.contains(category) {
+    let category_config = state.categories.get(category);
+
+    if category_config.is_none() {
         return response_no(ResponseCode::INVALID_CATEGORY, "invalid category");
     }
+
+    let category_config = category_config.unwrap();
 
     // todo compress image when uploading
     let compress = param.compress();
@@ -139,7 +151,9 @@ async fn upload_img(
 
         let file_name = file_name.unwrap().to_owned();
 
-        if !state.allow_non_image_content && !field.content_type().unwrap().contains("image") {
+        if !category_config.allow_non_image_content
+            && !field.content_type().unwrap().contains("image")
+        {
             return response_no(
                 ResponseCode::NOT_A_IMAGE,
                 &format!("not a image: {}", file_name),
@@ -189,14 +203,14 @@ async fn upload_img(
     for file_name in file_names {
         rename(
             uri_concat!(&state.pic_directory, "temp", &file_name),
-            uri_concat!(&state.pic_directory, category, &file_name),
+            uri_concat!(&state.pic_directory, "asset", category, &file_name),
         )
         .await
         .unwrap();
 
         image_urls.push(uri_concat!(
             &state.pic_url_prefix,
-            "/asset",
+            "asset",
             category,
             &encode(&file_name)
         ));
@@ -208,27 +222,24 @@ async fn upload_img(
 async fn get_img(
     State(state): State<Arc<SrvState>>,
     Path((category, file_name)): Path<(String, String)>,
-    Query(compress): Query<Option<u8>>,
+    Query(param): Query<GetImgParam>,
 ) -> (StatusCode, Body) {
-    if !state.categories.contains(&category) {
+    if !state.categories.contains_key(&category) {
         return (StatusCode::NOT_FOUND, Body::empty());
     }
 
-    let file = File::open(uri_concat!(&state.pic_directory, &category, &file_name)).await;
+    let file = File::open(uri_concat!(&state.pic_directory, "asset", &category, &file_name)).await;
 
     if file.is_err() {
         return (StatusCode::NOT_FOUND, Body::empty());
     }
 
-
     let stream = ReaderStream::new(file.unwrap());
 
-    if compress.is_some() {
-        let compress = compress.unwrap();
+    let compress = param.compress();
 
-        if compress != 0 {
-            return (StatusCode::NOT_IMPLEMENTED, Body::empty());
-        }
+    if compress != 0 {
+        return (StatusCode::NOT_IMPLEMENTED, Body::empty());
     }
 
     (StatusCode::OK, Body::from_stream(stream))
@@ -237,71 +248,84 @@ async fn get_img(
 async fn get_img_urls(
     State(_state): State<Arc<SrvState>>,
     Path(_category): Path<String>,
-    Query(
-        (_page, _limit, _precache)
-    ): Query<(String, String, Option<bool>)>,
+    Query((_page, _limit, _precache)): Query<(String, String, Option<bool>)>,
 ) -> JRestResponse<Vec<String>> {
     api_todo!()
 }
 
 #[tokio::main]
-async fn main() {
-    let matches = command!()
-        .args(&[
-            arg!(-o --timeout <sec>         "Seconds before timeout for each requests. Default: 30"),
-            arg!(-c --category [name]       "Names for categories.")
-                .action(ArgAction::Append)
-                .required(true),
-            arg!(-n --"allow-all-files"     "Files those are not images can also be uploaded.")
-                .action(ArgAction::SetTrue),
-            arg!(-t --token <token>         "Token for access to uploading images to the server.")
-                .required(true),
-            arg!(-d --dir <dir>             "Directory where stores images.")
-                .required(true),
-            arg!(-p --port <port>           "Port that the server listens to. If not given, 19190 will be used."),
-            arg!(-u --url <url>             "Url that will be used on responding to users the location of images. If not given, it will use api url in-built. It's usually be used for nginx with proxy_pass.")
-        ])
-        .get_matches();
+async fn main() -> io::Result<()> {
+    let dir = env::current_exe()?.join("..").join("picup-srv.toml");
+    let dir_str = dir.to_str().unwrap().to_string();
 
-    let categories = matches
-        .get_many::<String>("category")
-        .unwrap_or_default()
-        .map(|str_ref| str_ref.to_owned())
-        .collect::<Vec<String>>();
+    let mut file = File::open(dir).await
+        .expect(&format!("failed to find config file! it should be in [{:?}].", dir_str));
 
-    let allow_non_image_content = matches.get_flag("allow-all-files");
+    let mut cfg = String::new();
+    file.read_to_string(&mut cfg).await?;
 
-    let port = matches.get_one::<u16>("port").unwrap_or(&19190);
+    let mut cfg = cfg.parse::<Table>().unwrap().remove("server").unwrap();
+    let cfg = cfg.as_table_mut().unwrap();
 
-    let access_token = matches.get_one::<String>("token").unwrap().to_owned();
+    let timeout = cfg
+        .remove("timeout")
+        .unwrap_or(toml::Value::Integer(30))
+        .as_integer()
+        .unwrap()
+        .try_into()
+        .unwrap();
 
-    let dir = matches
-            .get_one::<String>("dir")
-            .expect("image directory is not specified")
-            .to_owned().to_string();
+    let token = cfg.remove("token").expect("no token provided");
+    let token = token.as_str().unwrap();
 
-    let pic_url_prefix = format!(
-        "{}{}",
-        match matches.get_one::<String>("url") {
-            Some(pic_url_prefix) => pic_url_prefix.to_owned(),
-            None => format!("http://127.0.0.1:{}", port),
-        },
-        api!("")
-    );
+    let directory = cfg.remove("directory").unwrap_or(toml::Value::String(dir_str));
+    let directory = directory.as_str().unwrap();
+
+    let port = cfg
+        .remove("port")
+        .unwrap_or(toml::Value::Integer(19190))
+        .as_integer()
+        .unwrap();
+
+    let url = cfg
+        .remove("url")
+        .unwrap_or(toml::Value::String(format!("http://127.0.0.1:{}", port)));
+    let url = url.as_str().unwrap();
+
+    let mut categories = cfg.remove("categories").expect("no category provided");
+    let categories = categories.as_table_mut().unwrap();
+
+    let mut category_configs = HashMap::new();
+
+    for (name, config) in categories {
+        let config = config.as_table_mut().unwrap();
+
+        category_configs.insert(
+            name.to_owned(),
+            CategoryConfig {
+                allow_non_image_content: config
+                    .remove("allow_all_files")
+                    .unwrap_or(toml::Value::Boolean(false))
+                    .as_bool()
+                    .unwrap(),
+            },
+        );
+    }
 
     let state = Arc::new(SrvState {
-        allow_non_image_content,
-        categories,
-        access_token,
-        pic_url_prefix,
-        pic_directory: dir.to_owned(),
+        categories: category_configs,
+        access_token: token.to_string(),
+        pic_url_prefix: format!("{}{}", url, API_BASE_URL),
+        pic_directory: directory.to_string(),
     });
 
     create_dir_all(&state.pic_directory).await.unwrap();
-    create_dir_all(uri_concat!(&state.pic_directory, "temp")).await.unwrap();
+    create_dir_all(uri_concat!(&state.pic_directory, "temp"))
+        .await
+        .unwrap();
 
-    for category in &state.categories {
-        create_dir_all(uri_concat!(&state.pic_directory, category))
+    for category in state.categories.keys() {
+        create_dir_all(uri_concat!(&state.pic_directory, "asset", category))
             .await
             .unwrap();
     }
@@ -312,18 +336,20 @@ async fn main() {
         .init();
 
     let app = Router::new()
-        .route(api!("/upload"), post(upload_img))
-        .route(api!("/asset/:category/:file_name"), get(get_img))
-        .route(api!("/category/:category"), get(get_img_urls))
+        .nest(
+            API_BASE_URL,
+            Router::new()
+                .route("/upload", post(upload_img))
+                .route("/asset/:category/:file_name", get(get_img))
+                .route("/category/:category", get(get_img_urls)),
+        )
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
-        .layer(TimeoutLayer::new(Duration::from_secs(
-            *matches.get_one::<u64>("timeout").unwrap_or(&30),
-        )));
+        .layer(TimeoutLayer::new(Duration::from_secs(timeout)));
 
     info!(
         "PicUp server is now listening to port {}. Ctrl+C to stop the server.",
@@ -341,6 +367,8 @@ async fn main() {
         })
         .await
         .unwrap();
+
+    Ok(())
 }
 
 async fn truncate_temp(state: &Arc<SrvState>) {

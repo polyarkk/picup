@@ -2,12 +2,12 @@
 name = "picup-srv"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 axum = { workspace = true }
-clap = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 urlencoding = { workspace = true }
@@ -15,3 +15,4 @@ picup-lib = { path = "../picup-lib" }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+toml = "0.8.12"

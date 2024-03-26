@@ -1,0 +1,22 @@
+[server]
+# Seconds before timeout for each requests. Default: 30
+timeout = 3000
+
+# Token for access to uploading images to the server.
+token = "baka"
+
+# Directory where stores images.
+directory = "D:\\picup"
+
+# Port that the server listens to.
+port = 19190
+
+# Url that will be used on responding to users the location of images. 
+# If not given, it will use api url in-built. 
+# It's usually be used for nginx with proxy_pass.
+# url = "https://skopzz.com"
+
+[server.categories]
+# Files those are not images can also be uploaded.
+pic = { allow_all_files = false }
+files = { allow_all_files = true }

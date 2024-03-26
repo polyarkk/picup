@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub const API_BASE_URL: &str = "/picup";
+
 #[macro_export]
 macro_rules! api {
     ( $s: expr ) => {
-        format!("/picup{}", $s).as_str()
+        format!("{}{}", API_BASE_URL, $s).as_str()
     };
 }
 
@@ -70,6 +72,7 @@ pub struct UploadImgParam {
     #[serde(default = "serde_default_empty_string")]
     category: String,
 
+    #[serde(default = "serde_default_empty_string")]
     access_token: String,
 }
 
@@ -97,6 +100,18 @@ impl UploadImgParam {
 
     pub fn access_token(&self) -> &String {
         &self.access_token
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetImgParam {
+    #[serde(default = "serde_default_zero_u8")]
+    compress: u8,
+}
+
+impl GetImgParam {
+    pub fn compress(&self) -> u8 {
+        self.compress
     }
 }
 
@@ -138,7 +153,9 @@ impl<TData> RestResponse<TData> {
 }
 
 pub fn picup<TPath>(
-    base_url: &str, file_paths: &[TPath], param: &UploadImgParam
+    base_url: &str,
+    file_paths: &[TPath],
+    param: &UploadImgParam,
 ) -> Result<Vec<String>>
 where
     TPath: AsRef<std::path::Path>,
@@ -156,9 +173,9 @@ where
         .query(&[
             ("access_token", param.access_token()),
             ("compress", &param.compress().to_string()),
-            ("category", param.category()), 
-            ("override", &param.r#override().to_string())]
-        )
+            ("category", param.category()),
+            ("override", &param.r#override().to_string()),
+        ])
         .multipart(form)
         .send()?
         .json::<RestResponse<Vec<String>>>()?;

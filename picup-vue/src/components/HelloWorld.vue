@@ -8,25 +8,21 @@ defineProps({
 </script>
 
 <template>
-  <var-row :gutter="[10, 10]">
-    <var-col :span="24">
-      <var-paper class="paper" :elevation="2" :width="1200" :height="80">
-        <var-cell>hello</var-cell>
-      </var-paper>
-    </var-col>
-    <var-col :span="24">
-      <var-paper class="paper" :elevation="2" :width="1200" :height="500">
-        <var-cell>hello</var-cell>
-      </var-paper>
-    </var-col>
-  </var-row>
+  <var-paper class="paper" :elevation="2">
+    <var-space justify="flex-end">
+      <var-button>删除</var-button>
+      <var-uploader>
+        <var-button type="primary">上传</var-button>
+      </var-uploader>
+    </var-space>
+    <var-divider />
+  </var-paper>
 </template>
 
 <style scoped>
-.read-the-docs {
-  color: #888;
-}
 .paper {
+  min-height: 80vh;
   background-color: aliceblue;
+  padding: 1em;
 }
 </style>
