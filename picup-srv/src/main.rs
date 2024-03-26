@@ -12,8 +12,6 @@ use axum::{
 };
 
 use picup_lib::{GetImgParam, ResponseCode, RestResponse, UploadImgParam, API_BASE_URL};
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use tokio::io::{self, AsyncReadExt};
 use tokio::{
     fs::{create_dir, create_dir_all, remove_dir_all, rename, try_exists, File},
