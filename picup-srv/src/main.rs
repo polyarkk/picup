@@ -1,4 +1,5 @@
 use std::env;
+use std::path::PathBuf;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
@@ -253,7 +254,7 @@ async fn get_img_urls(
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let dir = env::current_exe()?.join("..").join("picup-srv.toml");
+    let dir = exe_path().join("picup-srv.toml");
     let dir_str = dir.to_str().unwrap().to_string();
 
     let mut file = File::open(dir).await
@@ -373,4 +374,12 @@ async fn truncate_temp(state: &Arc<SrvState>) {
     let temp_dir = uri_concat!(&state.pic_directory, "temp");
     remove_dir_all(&temp_dir).await.unwrap();
     create_dir(&temp_dir).await.unwrap();
+}
+
+fn exe_path() -> PathBuf {
+    let mut path = env::current_exe().unwrap();
+
+    path.pop();
+
+    path
 }
