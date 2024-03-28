@@ -21,10 +21,8 @@ fn main() -> Result<()> {
 
     let token = matches.remove_one::<String>("token").unwrap();
 
-    let api_url = match matches.remove_one::<String>("api-url") {
-        Some(api_url) => api_url,
-        None => "http://127.0.0.1:19190".to_string(),
-    };
+    let api_url = matches.remove_one::<String>("api-url")
+        .unwrap_or("http://127.0.0.1:19190".to_string());
 
     let paths = matches
         .remove_many::<String>("images")

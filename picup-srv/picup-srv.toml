@@ -1,5 +1,5 @@
 [server]
-# Seconds before timeout for each requests. Default: 30
+# Seconds before timeout for each request. Default: 30
 timeout = 3000
 
 # Token for access to uploading images to the server.

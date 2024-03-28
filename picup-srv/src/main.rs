@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, process};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
@@ -25,7 +25,7 @@ use tokio_util::io::ReaderStream;
 use toml::Table;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
-use tracing::{info, Level};
+use tracing::{error, info, Level};
 use urlencoding::encode;
 
 macro_rules! uri_concat {
@@ -57,14 +57,14 @@ type JRestResponse<TData> = (StatusCode, Json<RestResponse<TData>>);
 
 trait JsonResponse {
     fn response(status: StatusCode, s: Self) -> (StatusCode, Json<Self>)
-    where
-        Self: Sized;
+        where
+            Self: Sized;
 }
 
 impl<TData> JsonResponse for RestResponse<TData> {
     fn response(status: StatusCode, s: Self) -> JRestResponse<TData>
-    where
-        Self: Sized,
+        where
+            Self: Sized,
     {
         (status, Json(s))
     }
@@ -204,8 +204,8 @@ async fn upload_img(
             uri_concat!(&state.pic_directory, "temp", &file_name),
             uri_concat!(&state.pic_directory, "asset", category, &file_name),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         image_urls.push(uri_concat!(
             &state.pic_url_prefix,
@@ -360,14 +360,22 @@ async fn main() -> io::Result<()> {
         .unwrap();
 
     serve(listener, app.into_make_service())
-        .with_graceful_shutdown(async {
-            ctrl_c().await.unwrap();
-            info!("PicUp server is not shutting down!");
-        })
+        .with_graceful_shutdown(sigterm())
         .await
         .unwrap();
 
     Ok(())
+}
+
+async fn sigterm() {
+    let ctrl_c = async { ctrl_c().await.unwrap() };
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("PicUp server is now shutting down!");
+            process::exit(0);
+        }
+    }
 }
 
 async fn truncate_temp(state: &Arc<SrvState>) {
