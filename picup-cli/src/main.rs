@@ -21,7 +21,8 @@ fn main() -> Result<()> {
 
     let token = matches.remove_one::<String>("token").unwrap();
 
-    let api_url = matches.remove_one::<String>("api-url")
+    let api_url = matches
+        .remove_one::<String>("api-url")
         .unwrap_or("http://127.0.0.1:19190".to_string());
 
     let paths = matches

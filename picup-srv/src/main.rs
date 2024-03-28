@@ -1,7 +1,7 @@
-use std::{env, process};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
+use std::{env, process};
 
 use axum::{
     body::Body,
@@ -25,7 +25,7 @@ use tokio_util::io::ReaderStream;
 use toml::Table;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
-use tracing::{error, info, Level};
+use tracing::{info, Level};
 use urlencoding::encode;
 
 macro_rules! uri_concat {
@@ -57,14 +57,14 @@ type JRestResponse<TData> = (StatusCode, Json<RestResponse<TData>>);
 
 trait JsonResponse {
     fn response(status: StatusCode, s: Self) -> (StatusCode, Json<Self>)
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
 impl<TData> JsonResponse for RestResponse<TData> {
     fn response(status: StatusCode, s: Self) -> JRestResponse<TData>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         (status, Json(s))
     }
@@ -204,8 +204,8 @@ async fn upload_img(
             uri_concat!(&state.pic_directory, "temp", &file_name),
             uri_concat!(&state.pic_directory, "asset", category, &file_name),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         image_urls.push(uri_concat!(
             &state.pic_url_prefix,
@@ -227,7 +227,13 @@ async fn get_img(
         return (StatusCode::NOT_FOUND, Body::empty());
     }
 
-    let file = File::open(uri_concat!(&state.pic_directory, "asset", &category, &file_name)).await;
+    let file = File::open(uri_concat!(
+        &state.pic_directory,
+        "asset",
+        &category,
+        &file_name
+    ))
+    .await;
 
     if file.is_err() {
         return (StatusCode::NOT_FOUND, Body::empty());
@@ -257,8 +263,10 @@ async fn main() -> io::Result<()> {
     let dir = exe_path().join("picup-srv.toml");
     let dir_str = dir.to_str().unwrap().to_string();
 
-    let mut file = File::open(dir).await
-        .expect(&format!("failed to find config file! it should be in [{:?}].", dir_str));
+    let mut file = File::open(dir).await.expect(&format!(
+        "failed to find config file! it should be in [{:?}].",
+        dir_str
+    ));
 
     let mut cfg = String::new();
     file.read_to_string(&mut cfg).await?;
@@ -277,7 +285,9 @@ async fn main() -> io::Result<()> {
     let token = cfg.remove("token").expect("no token provided");
     let token = token.as_str().unwrap();
 
-    let directory = cfg.remove("directory").unwrap_or(toml::Value::String(dir_str));
+    let directory = cfg
+        .remove("directory")
+        .unwrap_or(toml::Value::String(dir_str));
     let directory = directory.as_str().unwrap();
 
     let port = cfg

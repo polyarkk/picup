@@ -25,12 +25,12 @@ impl ResponseCode {
 macro_rules! response_codes {
     (
         $(
-            ($num:expr, $konst:ident);
+            ($num:expr, $r#const:ident);
         )+
     ) => {
         impl ResponseCode {
         $(
-            pub const $konst: ResponseCode = ResponseCode($num);
+            pub const $r#const: ResponseCode = ResponseCode($num);
         )+
         }
     }
