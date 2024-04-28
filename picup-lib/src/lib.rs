@@ -1,5 +1,13 @@
+use std::{
+    env::temp_dir,
+    fs::{remove_file, File},
+    io::Write,
+    path::PathBuf,
+};
+
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -164,11 +172,33 @@ where
 
     let mut form = Form::new();
 
+    let mut temp_files = vec![];
+
     for path in file_paths {
-        form = form.file("file", path)?;
+        if path.as_ref().starts_with("http") {
+            // download it before we add it
+            let res = client
+                .get(path.as_ref().to_str().unwrap())
+                .send()?
+                .bytes()?;
+
+            let temp_file_path = [temp_dir(), Uuid::new_v4().to_string().into()]
+                .iter()
+                .collect::<PathBuf>();
+
+            let mut file = File::create(&temp_file_path)?;
+
+            file.write_all(&res)?;
+
+            form = form.file("file", &temp_file_path)?;
+
+            temp_files.push(temp_file_path);
+        } else {
+            form = form.file("file", path)?;
+        }
     }
 
-    let res = client
+    let mut res = client
         .post(format!("{}{}", base_url, api!("/upload")))
         .query(&[
             ("access_token", param.access_token()),
@@ -177,12 +207,36 @@ where
             ("override", &param.r#override().to_string()),
         ])
         .multipart(form)
-        .send()?
-        .json::<RestResponse<Vec<String>>>()?;
+        .send()?;
+
+    let mut body_buf = vec![];
+    res.copy_to(&mut body_buf)?;
+
+    let res = match res.json::<RestResponse<Vec<String>>>() {
+        Ok(r) => r,
+        Err(_) => {
+            return Err(Error::from(String::from_utf8(body_buf)?));
+        }
+    };
+
+    for file in temp_files {
+        let _ = remove_file(file);
+    }
 
     if res.code() != ResponseCode::OK {
         return Err(Error::from(res.msg().as_str()));
     }
 
     Ok(res.data().unwrap().to_vec())
+}
+
+#[test]
+fn test() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    picup(
+        "https://skopzz.com",
+        &["D:/Download/demo.gif"],
+        &UploadImgParam::new("baka", 0, "pic", false),
+    )?;
+
+    Ok(())
 }

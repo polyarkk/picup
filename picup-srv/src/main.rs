@@ -3,6 +3,7 @@ use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use std::{env, process};
 
+use axum::extract::DefaultBodyLimit;
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
@@ -358,7 +359,8 @@ async fn main() -> io::Result<()> {
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
-        .layer(TimeoutLayer::new(Duration::from_secs(timeout)));
+        .layer(TimeoutLayer::new(Duration::from_secs(timeout)))
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024 * 32)); // 32mb
 
     info!(
         "PicUp server is now listening to port {}. Ctrl+C to stop the server.",
