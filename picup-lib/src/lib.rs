@@ -7,7 +7,6 @@ use std::{
 
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use uuid::Uuid;
 
 pub type Error = Box<dyn std::error::Error>;
@@ -177,26 +176,29 @@ where
 
     for path in file_paths {
         if path.as_ref().starts_with("http") {
-            // download it before we add it
-            let res = client
-                .get(path.as_ref().to_str().unwrap())
-                .send()?
-                .bytes()?;
-
-            let temp_file_path = [temp_dir(), Uuid::new_v4().to_string().into()]
-                .iter()
-                .collect::<PathBuf>();
-
-            let mut file = File::create(&temp_file_path)?;
-
-            file.write_all(&res)?;
-
-            form = form.file("file", &temp_file_path)?;
-
-            temp_files.push(temp_file_path);
-        } else {
+            // do nothing if it's actually a local file
             form = form.file("file", path)?;
+
+            continue;
         }
+
+        // download it before we add it
+        let res = client
+            .get(path.as_ref().to_str().unwrap())
+            .send()?
+            .bytes()?;
+
+        let temp_file_path = [temp_dir(), Uuid::new_v4().to_string().into()]
+            .iter()
+            .collect::<PathBuf>();
+
+        let mut file = File::create(&temp_file_path)?;
+
+        file.write_all(&res)?;
+
+        form = form.file("file", &temp_file_path)?;
+
+        temp_files.push(temp_file_path);
     }
 
     let mut res = client
