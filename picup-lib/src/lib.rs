@@ -175,7 +175,7 @@ where
     let mut temp_files = vec![];
 
     for path in file_paths {
-        if path.as_ref().starts_with("http") {
+        if !path.as_ref().starts_with("http") {
             // do nothing if it's actually a local file
             form = form.file("file", path)?;
 
