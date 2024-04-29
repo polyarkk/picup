@@ -7,6 +7,7 @@ use std::{
 
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 pub type Error = Box<dyn std::error::Error>;
@@ -212,10 +213,14 @@ where
     let mut body_buf = vec![];
     res.copy_to(&mut body_buf)?;
 
-    let res = match res.json::<RestResponse<Vec<String>>>() {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(Error::from(String::from_utf8(body_buf)?));
+    let json_str = String::from_utf8(body_buf)?;
+
+    let res = match serde_json::from_str::<RestResponse<Vec<String>>>(&json_str) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            eprintln!("json parse fail, should be an error: {}", e);
+
+            return Err(Error::from(json_str));
         }
     };
 
