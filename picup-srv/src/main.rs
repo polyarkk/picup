@@ -24,6 +24,7 @@ use tokio::{
 
 use tokio_util::io::ReaderStream;
 use toml::Table;
+use tower_http::cors::{self, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
@@ -360,7 +361,8 @@ async fn main() -> io::Result<()> {
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
         .layer(TimeoutLayer::new(Duration::from_secs(timeout)))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024 * 32)); // 32mb
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024 * 32)) // 32mb
+        .layer(CorsLayer::very_permissive());
 
     info!(
         "PicUp server is now listening to port {}. Ctrl+C to stop the server.",
