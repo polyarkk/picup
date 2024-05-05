@@ -24,7 +24,7 @@ use tokio::{
 
 use tokio_util::io::ReaderStream;
 use toml::Table;
-use tower_http::cors::{self, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
