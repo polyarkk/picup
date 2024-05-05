@@ -4,6 +4,9 @@ use std::{collections::HashMap, sync::Arc};
 use std::{env, process};
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::header::CACHE_CONTROL;
+use axum::http::{HeaderValue, Response};
+use axum::response::IntoResponse;
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
@@ -224,9 +227,9 @@ async fn get_img(
     State(state): State<Arc<SrvState>>,
     Path((category, file_name)): Path<(String, String)>,
     Query(param): Query<GetImgParam>,
-) -> (StatusCode, Body) {
+) -> Response<Body> {
     if !state.categories.contains_key(&category) {
-        return (StatusCode::NOT_FOUND, Body::empty());
+        return (StatusCode::NOT_FOUND, Body::empty()).into_response();
     }
 
     let file = File::open(uri_concat!(
@@ -238,7 +241,7 @@ async fn get_img(
     .await;
 
     if file.is_err() {
-        return (StatusCode::NOT_FOUND, Body::empty());
+        return (StatusCode::NOT_FOUND, Body::empty()).into_response();
     }
 
     let stream = ReaderStream::new(file.unwrap());
@@ -246,10 +249,17 @@ async fn get_img(
     let compress = param.compress();
 
     if compress != 0 {
-        return (StatusCode::NOT_IMPLEMENTED, Body::empty());
+        return (StatusCode::NOT_IMPLEMENTED, Body::empty()).into_response();
     }
 
-    (StatusCode::OK, Body::from_stream(stream))
+    let mut response = (StatusCode::OK, Body::from_stream(stream)).into_response();
+
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=1919810"),
+    );
+
+    response
 }
 
 async fn get_img_urls(
