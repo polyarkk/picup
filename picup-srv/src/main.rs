@@ -3,7 +3,6 @@ use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use std::{env, process};
 
-use axum::extract::DefaultBodyLimit;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderValue, Response};
 use axum::response::IntoResponse;
@@ -27,7 +26,9 @@ use tokio::{
 
 use tokio_util::io::ReaderStream;
 use toml::Table;
+use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::{info, Level};
@@ -366,13 +367,16 @@ async fn main() -> io::Result<()> {
         )
         .with_state(state)
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(DefaultOnResponse::new().level(Level::INFO)),
-        )
-        .layer(TimeoutLayer::new(Duration::from_secs(timeout)))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024 * 32)) // 32mb
-        .layer(CorsLayer::very_permissive());
+            ServiceBuilder::new()
+                .layer(RequestBodyLimitLayer::new(1024 * 1024 * 32))
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                        .on_response(DefaultOnResponse::new().level(Level::INFO)),
+                )
+                .layer(TimeoutLayer::new(Duration::from_secs(timeout)))
+                .layer(CorsLayer::very_permissive()),
+        );
 
     info!(
         "PicUp server is now listening to port {}. Ctrl+C to stop the server.",
