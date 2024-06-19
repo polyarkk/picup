@@ -7,7 +7,6 @@ use std::{
 
 use reqwest::blocking::{multipart::Form, Client};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -175,7 +174,7 @@ where
     let mut temp_files = vec![];
 
     for path in file_paths {
-        if !path.as_ref().starts_with("http") {
+        if !path.as_ref().to_str().unwrap().starts_with("http") {
             // do nothing if it's actually a local file
             form = form.file("file", path)?;
 
@@ -188,9 +187,16 @@ where
             .send()?
             .bytes()?;
 
-        let temp_file_path = [temp_dir(), Uuid::new_v4().to_string().into()]
-            .iter()
-            .collect::<PathBuf>();
+        let temp_file_path = [
+            temp_dir(),
+            PathBuf::from(
+                path.as_ref()
+                    .file_name()
+                    .expect("guessing file extension has not implemented yet"),
+            ),
+        ]
+        .iter()
+        .collect::<PathBuf>();
 
         let mut file = File::create(&temp_file_path)?;
 
@@ -238,12 +244,29 @@ where
 }
 
 #[test]
-fn test() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    picup(
-        "https://skopzz.com",
-        &["D:/Download/demo.gif"],
-        &UploadImgParam::new("baka", 0, "pic", false),
-    )?;
+fn test_local_file() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{:#?}",
+        picup(
+            "https://skopzz.com",
+            &["D:/Download/demo.gif"],
+            &UploadImgParam::new("baka", 0, "pic", false),
+        )?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_remote() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{:#?}",
+        picup(
+            "https://skopzz.com",
+            &["https://cdn.sisense.com/wp-content/uploads/image-1-order-blog.png"],
+            &UploadImgParam::new("baka", 0, "pic", false),
+        )?
+    );
 
     Ok(())
 }
